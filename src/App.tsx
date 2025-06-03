@@ -1,50 +1,114 @@
-import { useEffect, useState } from "react";
-import type { Schema } from "../amplify/data/resource";
-import { useAuthenticator } from '@aws-amplify/ui-react';
-import { generateClient } from "aws-amplify/data";
+// src/App.tsx
+import React, { useState, useEffect } from 'react';
+import { Authenticator } from '@aws-amplify/ui-react';
+import '@aws-amplify/ui-react/styles.css';
+import { fetchTodos, deleteTodo, addTodo, Todo } from './services/api';
+import './App.css';
 
-const client = generateClient<Schema>();
+const App: React.FC = () => {
+  return (
+    <Authenticator>
+      {({ signOut}) => (
+        <div className="app">
+          <h1>Lista TODO</h1>
+          <button onClick={signOut} className="sign-out-button">
+            Cerrar sesión
+          </button>
+          <TodoList />
+        </div>
+      )}
+    </Authenticator>
+  );
+};
 
-function App() {
-  const [todos, setTodos] = useState<Array<Schema["Todo"]["type"]>>([]);
-    const { signOut } = useAuthenticator();
+const TodoList: React.FC = () => {
+  const [todos, setTodos] = useState<Todo[]>([]);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [error, setError] = useState<string | null>(null);
+  const [showForm, setShowForm] = useState<boolean>(false);
+  const [newTodoTitle, setNewTodoTitle] = useState<string>('');
 
   useEffect(() => {
-    client.models.Todo.observeQuery().subscribe({
-      next: (data) => setTodos([...data.items]),
-    });
+    const loadTodos = async () => {
+      try {
+        const data = await fetchTodos();
+        setTodos(data.slice(0, 10));
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Error al cargar los datos');
+      } finally {
+        setLoading(false);
+      }
+    };
+    loadTodos();
   }, []);
 
-  function createTodo() {
-    client.models.Todo.create({ content: window.prompt("Todo content") });
-  }
+  const handleDelete = async (id: number) => {
+    try {
+      await deleteTodo(id);
+      setTodos(todos.filter(todo => todo.id !== id));
+    } catch (err) {
+      setError('Error al eliminar el todo');
+    }
+  };
 
-    
-  function deleteTodo(id: string) {
-    client.models.Todo.delete({ id })
-  }
+  const handleAddTodo = async () => {
+    if (!newTodoTitle.trim()) return;
+
+    const newTodo: Omit<Todo, 'id'> = {
+      userId: 1,
+      title: newTodoTitle,
+      completed: false,
+    };
+
+    try {
+      const createdTodo = await addTodo(newTodo);
+      setTodos([createdTodo, ...todos]);
+      setNewTodoTitle('');
+      setShowForm(false);
+    } catch (err) {
+      setError('Error al agregar el todo');
+    }
+  };
+
+  if (loading) return <div className="loading">Cargando...</div>;
+  if (error) return <div className="error">{error}</div>;
 
   return (
-    <main>
-      <h1>My todos</h1>
-      <button onClick={createTodo}>+ new</button>
-      <ul>
-        {todos.map((todo) => (
-          <li
-                    onClick={() => deleteTodo(todo.id)}
-          key={todo.id}>{todo.content}</li>
+    <div className="todo-container">
+      <button 
+        onClick={() => setShowForm(!showForm)} 
+        className="new-button"
+      >
+        +New
+      </button>
+
+      {showForm && (
+        <div className="todo-form">
+          <input
+            type="text"
+            value={newTodoTitle}
+            onChange={(e) => setNewTodoTitle(e.target.value)}
+            placeholder="Título del todo"
+          />
+          <button onClick={handleAddTodo}>Guardar</button>
+        </div>
+      )}
+
+      <ul className="todo-list">
+        {todos.map(todo => (
+          <li key={todo.id} className="todo-item">
+            <span>{todo.title}</span>
+            <button 
+              onClick={() => handleDelete(todo.id)} 
+              className="delete-button"
+            >
+              Eliminar
+            </button>
+          </li>
         ))}
       </ul>
-      <div>
-        🥳 App successfully hosted. Try creating a new todo.
-        <br />
-        <a href="https://docs.amplify.aws/react/start/quickstart/#make-frontend-updates">
-          Review next step of this tutorial.
-        </a>
-      </div>
-            <button onClick={signOut}>Sign out</button>
-    </main>
+    </div>
   );
-}
+};
 
 export default App;
